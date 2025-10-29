@@ -1,0 +1,112 @@
+diff --git a/app/GUI/terminaldock.cpp b/app/GUI/terminaldock.cpp
+index 35cc597c..d93741ad 100644
+--- a/app/GUI/terminaldock.cpp
++++ b/app/GUI/terminaldock.cpp
+@@ -64,6 +64,10 @@ TerminalDock::~TerminalDock()
+     if (konsole_part) {
+         disconnect(konsole_part, &KParts::ReadOnlyPart::destroyed, this, &TerminalDock::killTerminalEmulator);
+     }
++    // Remove the event filter that was installed in initialise()
++    if (initialised) {
++        qApp->removeEventFilter(this);
++    }
+ };
+ 
+ bool TerminalDock::initialise()
+diff --git a/app/Panel/listpanel.cpp b/app/Panel/listpanel.cpp
+index 796d8951..ab7321fb 100644
+--- a/app/Panel/listpanel.cpp
++++ b/app/Panel/listpanel.cpp
+@@ -405,22 +405,23 @@ ListPanel::ListPanel(QWidget *parent, AbstractPanelManager *manager, const KConf
+ 
+ ListPanel::~ListPanel()
+ {
+-    view->widget()->removeEventFilter(this);
+-    urlNavigator->editor()->removeEventFilter(this);
++    if (view && view->widget())
++        view->widget()->removeEventFilter(this);
++    if (urlNavigator && urlNavigator->editor())
++        urlNavigator->editor()->removeEventFilter(this);
+     cancelProgress();
++    
++    // Delete func explicitly as it's not a QWidget and won't be auto-deleted by Qt
++    delete func;
++    
++    // Delete view explicitly to ensure proper cleanup order before parent widgets
+     delete view;
+     view = nullptr;
+-    delete func;
+-    delete status;
+-    delete bookmarksButton;
+-    delete totals;
+-    delete urlNavigator;
+-    delete cdRootButton;
+-    delete cdHomeButton;
+-    delete cdUpButton;
+-    delete cdOtherButton;
+-    delete syncBrowseButton;
+-    //     delete layout;
++    
++    // All other widgets (status, bookmarksButton, totals, urlNavigator, buttons, etc.)
++    // are owned by Qt's parent-child hierarchy and will be automatically deleted
++    // when the layout and parent widget are destroyed. Manual deletion would cause
++    // double-delete issues.
+ }
+ 
+ void ListPanel::reparent(QWidget *parent, AbstractPanelManager *manager)
+diff --git a/app/krusader.cpp b/app/krusader.cpp
+index 61b7f7ed..44f7faaf 100644
+--- a/app/krusader.cpp
++++ b/app/krusader.cpp
+@@ -449,7 +449,15 @@ bool Krusader::queryClose()
+        If closing a child is not successful, then we cannot let the
+        main window close. */
+ 
++    int maxAttempts = 0;
++    const int MAX_CLOSE_ATTEMPTS = 50; // Prevent infinite loop
++    
+     for (;;) {
++        if (++maxAttempts > MAX_CLOSE_ATTEMPTS) {
++            fprintf(stderr, "Warning: Maximum close attempts reached, forcing shutdown\n");
++            break;
++        }
++        
+         QWidgetList list = QApplication::topLevelWidgets();
+         QWidget *activeModal = QApplication::activeModalWidget();
+         QWidget *w = list.at(0);
+@@ -472,10 +480,23 @@ bool Krusader::queryClose()
+             break;
+ 
+         if (!w->close()) {
++            // Widget refused to close - check if it's a viewer or editor that might be blocking
++            const char *className = w->metaObject()->className();
++            fprintf(stderr, "Failed to close: %s\n", className);
++            
++            // For KrViewer windows, force delete them after they refuse to close
++            // This prevents hanging on KParts that won't close
++            if (qstrcmp(className, "KrViewer") == 0) {
++                fprintf(stderr, "Force deleting KrViewer window\n");
++                w->deleteLater();
++                // Continue to next widget instead of aborting shutdown
++                continue;
++            }
++            
++            // For other dialogs, still abort shutdown as before
+             if (w->inherits("QDialog")) {
+-                fprintf(stderr, "Failed to close: %s\n", w->metaObject()->className());
++                return false;
+             }
+-            return false;
+         }
+     }
+ 
+@@ -495,6 +516,9 @@ void Krusader::acceptClose()
+ 
+     QDBusConnection dbus = QDBusConnection::sessionBus();
+     dbus.unregisterObject("/Instances/" + Krusader::AppName);
++    dbus.unregisterObject("/Instances/" + Krusader::AppName + "/left_manager");
++    dbus.unregisterObject("/Instances/" + Krusader::AppName + "/right_manager");
++    dbus.unregisterService("org.krusader");
+ }
+ 
+ // the please wait dialog functions

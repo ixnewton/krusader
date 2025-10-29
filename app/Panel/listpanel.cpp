@@ -405,22 +405,23 @@ ListPanel::ListPanel(QWidget *parent, AbstractPanelManager *manager, const KConf
 
 ListPanel::~ListPanel()
 {
-    view->widget()->removeEventFilter(this);
-    urlNavigator->editor()->removeEventFilter(this);
+    if (view && view->widget())
+        view->widget()->removeEventFilter(this);
+    if (urlNavigator && urlNavigator->editor())
+        urlNavigator->editor()->removeEventFilter(this);
     cancelProgress();
+
+    // Delete func explicitly as it's not a QWidget and won't be auto-deleted by Qt
+    delete func;
+
+    // Delete view explicitly to ensure proper cleanup order before parent widgets
     delete view;
     view = nullptr;
-    delete func;
-    delete status;
-    delete bookmarksButton;
-    delete totals;
-    delete urlNavigator;
-    delete cdRootButton;
-    delete cdHomeButton;
-    delete cdUpButton;
-    delete cdOtherButton;
-    delete syncBrowseButton;
-    //     delete layout;
+
+    // All other widgets (status, bookmarksButton, totals, urlNavigator, buttons, etc.)
+    // are owned by Qt's parent-child hierarchy and will be automatically deleted
+    // when the layout and parent widget are destroyed. Manual deletion would cause
+    // double-delete issues.
 }
 
 void ListPanel::reparent(QWidget *parent, AbstractPanelManager *manager)

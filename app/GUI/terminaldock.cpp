@@ -64,6 +64,10 @@ TerminalDock::~TerminalDock()
     if (konsole_part) {
         disconnect(konsole_part, &KParts::ReadOnlyPart::destroyed, this, &TerminalDock::killTerminalEmulator);
     }
+    // Remove the event filter that was installed in initialise()
+    if (initialised) {
+        qApp->removeEventFilter(this);
+    }
 };
 
 bool TerminalDock::initialise()

@@ -449,7 +449,15 @@ bool Krusader::queryClose()
        If closing a child is not successful, then we cannot let the
        main window close. */
 
+    int maxAttempts = 0;
+    const int MAX_CLOSE_ATTEMPTS = 50; // Prevent infinite loop
+
     for (;;) {
+        if (++maxAttempts > MAX_CLOSE_ATTEMPTS) {
+            fprintf(stderr, "Warning: Maximum close attempts reached, forcing shutdown\n");
+            break;
+        }
+
         QWidgetList list = QApplication::topLevelWidgets();
         QWidget *activeModal = QApplication::activeModalWidget();
         QWidget *w = list.at(0);
@@ -472,10 +480,23 @@ bool Krusader::queryClose()
             break;
 
         if (!w->close()) {
-            if (w->inherits("QDialog")) {
-                fprintf(stderr, "Failed to close: %s\n", w->metaObject()->className());
+            // Widget refused to close - check if it's a viewer or editor that might be blocking
+            const char *className = w->metaObject()->className();
+            fprintf(stderr, "Failed to close: %s\n", className);
+
+            // For KrViewer windows, force delete them after they refuse to close
+            // This prevents hanging on KParts that won't close
+            if (qstrcmp(className, "KrViewer") == 0) {
+                fprintf(stderr, "Force deleting KrViewer window\n");
+                w->deleteLater();
+                // Continue to next widget instead of aborting shutdown
+                continue;
             }
-            return false;
+
+            // For other dialogs, still abort shutdown as before
+            if (w->inherits("QDialog")) {
+                return false;
+            }
         }
     }
 
@@ -495,6 +516,9 @@ void Krusader::acceptClose()
 
     QDBusConnection dbus = QDBusConnection::sessionBus();
     dbus.unregisterObject("/Instances/" + Krusader::AppName);
+    dbus.unregisterObject("/Instances/" + Krusader::AppName + "/left_manager");
+    dbus.unregisterObject("/Instances/" + Krusader::AppName + "/right_manager");
+    dbus.unregisterService("org.krusader");
 }
 
 // the please wait dialog functions
