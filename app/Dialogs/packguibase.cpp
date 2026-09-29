@@ -57,7 +57,6 @@ PackGUIBase::PackGUIBase(QWidget *parent)
     KConfigGroup group(krConfig, "Archives");
 
     setModal(true);
-    resize(430, 140);
     setWindowTitle(i18n("Pack"));
     grid = new QGridLayout(this);
     grid->setSpacing(6);
@@ -302,6 +301,10 @@ PackGUIBase::PackGUIBase(QWidget *parent)
     connect(advancedButton, &QPushButton::clicked, this, &PackGUIBase::expand);
     connect(cancelButton, &QPushButton::clicked, this, &PackGUIBase::reject);
     connect(browseButton, &QToolButton::clicked, this, &PackGUIBase::browse);
+
+    // Size the dialog to the layout's preferred size now that all widgets are set up.
+    // The advancedWidget is hidden, so this gives the correct collapsed size.
+    adjustSize();
 }
 
 /*
@@ -328,8 +331,7 @@ void PackGUIBase::expand()
     else {
         advancedWidget->hide();
         layout()->activate();
-        QSize minSize = minimumSize();
-        resize(width(), minSize.height());
+        resize(width(), sizeHint().height());
     }
     show();
 }
